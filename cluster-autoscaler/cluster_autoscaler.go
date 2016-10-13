@@ -27,6 +27,7 @@ import (
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider/aws"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider/gce"
+	"k8s.io/contrib/cluster-autoscaler/cloudprovider/spc"
 	"k8s.io/contrib/cluster-autoscaler/config"
 	"k8s.io/contrib/cluster-autoscaler/simulator"
 	kube_util "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
@@ -75,7 +76,8 @@ var (
 	scanInterval  = flag.Duration("scan-interval", 10*time.Second, "How often cluster is reevaluated for scale up or down")
 	maxNodesTotal = flag.Int("max-nodes-total", 0, "Maximum number of nodes in all node groups. Cluster autoscaler will not grow the cluster beyond this number.")
 
-	cloudProviderFlag = flag.String("cloud-provider", "gce", "Cloud provider type. Allowed values: gce")
+	cloudProviderFlag      = flag.String("cloud-provider", "gce", "Cloud provider type. Allowed values: gce")
+	autoscalerProviderFlag = flag.String("autoscaler-provider", "", "Autoscaler provider name, defaults to cloud-provider")
 )
 
 func createKubeClient() *kube_client.Client {
@@ -123,7 +125,11 @@ func run(_ <-chan struct{}) {
 
 	var cloudProvider cloudprovider.CloudProvider
 
-	if *cloudProviderFlag == "gce" {
+	if *autoscalerProviderFlag == "" {
+		autoscalerProviderFlag = cloudProviderFlag
+	}
+
+	if *autoscalerProviderFlag == "gce" {
 		// GCE Manager
 		var gceManager *gce.GceManager
 		var gceError error
@@ -146,7 +152,7 @@ func run(_ <-chan struct{}) {
 		}
 	}
 
-	if *cloudProviderFlag == "aws" {
+	if *autoscalerProviderFlag == "aws" {
 		var awsManager *aws.AwsManager
 		var awsError error
 		if *cloudConfig != "" {
@@ -165,6 +171,17 @@ func run(_ <-chan struct{}) {
 		cloudProvider, err = aws.BuildAwsCloudProvider(awsManager, nodeGroupsFlag)
 		if err != nil {
 			glog.Fatalf("Failed to create AWS cloud provider: %v", err)
+		}
+	}
+
+	if *autoscalerProviderFlag == "stackpointio" {
+		spcClient, spcError := spc.CreateClusterClient()
+		if spcError != nil {
+			glog.Fatalf("Failed to create SPC client: %v", spcError)
+		}
+		cloudProvider, err = spc.BuildSpcCloudProvider(spcClient, nodeGroupsFlag)
+		if err != nil {
+			glog.Fatalf("Failed to create stackpointio cloud provider: %v", err)
 		}
 	}
 
