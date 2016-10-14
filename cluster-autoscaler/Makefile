@@ -25,7 +25,7 @@ REGISTRY ?= quay.io/ntfrnzn
 ARCH ?= amd64
 
 # This version-strategy uses git tags to set the version string
-VERSION := $(shell git describe --always --dirty).202
+VERSION := $(shell git describe --always --dirty)-$(ARCH)
 #
 # This version-strategy uses a manual value to set the version string
 #VERSION := 1.2.3
@@ -52,7 +52,8 @@ ifeq ($(ARCH),ppc64le)
     BASEIMAGE?=ppc64le/busybox
 endif
 
-IMAGE := $(REGISTRY)/$(BIN)-$(ARCH)
+IMAGE := $(REGISTRY)/stackpointio-$(BIN)
+# -$(ARCH)
 
 BUILD_IMAGE ?= golang:1.7-alpine
 

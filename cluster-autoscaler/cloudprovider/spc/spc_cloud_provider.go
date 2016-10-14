@@ -18,47 +18,13 @@ package spc
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/StackPointCloud/stackpoint-sdk-go"
 	"github.com/golang/glog"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider"
 	kube_api "k8s.io/kubernetes/pkg/api"
 )
-
-// CreateClusterClient creates a stackpointio.ClusterClient from environment
-// variables {CLUSTER_API_TOKEN, SPC_BASE_API_URL, ORGANIZATION_ID, CLUSTER_ID}
-func CreateClusterClient() (*stackpointio.ClusterClient, error) {
-
-	token := os.Getenv("CLUSTER_API_TOKEN")
-	if token == "" {
-		return nil, fmt.Errorf("Environment variable CLUSTER_API_TOKEN not defined")
-	}
-	endpoint := os.Getenv("SPC_API_BASE_URL")
-	if endpoint == "" {
-		return nil, fmt.Errorf("Environment variable SPC_API_BASE_URL not defined")
-	}
-	apiClient := stackpointio.NewClient(token, endpoint)
-	glog.V(5).Infof("Using stackpoint io api server [%s]", endpoint)
-
-	organizationID := os.Getenv("ORGANIZATION_ID")
-	clusterID := os.Getenv("CLUSTER_ID")
-	glog.V(5).Infof("Using stackpoint organization [%s], cluster [%s]", organizationID, clusterID)
-
-	orgPk, err := strconv.Atoi(organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("Bad environment variable for organizationID [%s]", organizationID)
-	}
-	clusterPk, err := strconv.Atoi(clusterID)
-	if err != nil {
-		return nil, fmt.Errorf("Bad environment variable for clusterID [%s]", clusterID)
-	}
-
-	clusterClient := stackpointio.CreateClusterClient(orgPk, clusterPk, apiClient)
-	return clusterClient, nil
-}
 
 // SpcNodeGroup implements NodeGroup
 type SpcNodeGroup struct {
@@ -67,7 +33,7 @@ type SpcNodeGroup struct {
 	minSize int
 	// currentSize int
 	// targetSize  int
-	manager *stackpointio.NodeManager
+	manager *NodeManager
 }
 
 // MaxSize returns maximum size of the node group.
@@ -151,14 +117,14 @@ func (sng *SpcNodeGroup) Debug() string {
 
 // SpcCloudProvider implements CloudProvider
 type SpcCloudProvider struct {
-	spcClient  *stackpointio.ClusterClient
+	spcClient  *ClusterClient
 	nodeGroups []*SpcNodeGroup
 }
 
 // BuildSpcCloudProvider builds CloudProvider implementation for stackpointio.
-func BuildSpcCloudProvider(spcClient *stackpointio.ClusterClient, specs []string) (*SpcCloudProvider, error) {
+func BuildSpcCloudProvider(spcClient *ClusterClient, specs []string) (*SpcCloudProvider, error) {
 	if spcClient == nil {
-		return nil, fmt.Errorf("stackpointio.ClusterClient is nil")
+		return nil, fmt.Errorf("ClusterClient is nil")
 	}
 	if len(specs) == 0 {
 		glog.V(5).Info("No node groups specified, faking one now")
@@ -188,7 +154,7 @@ func (spc *SpcCloudProvider) addNodeGroup(spec string) error {
 	if spc.spcClient == nil {
 		return fmt.Errorf("Something's gone terribly wrong, spc.spcClient is nil")
 	}
-	manager := stackpointio.CreateNodeManager(nodeType, spc.spcClient)
+	manager := CreateNodeManager(nodeType, spc.spcClient)
 	err = manager.Update()
 	if err != nil {
 		return err

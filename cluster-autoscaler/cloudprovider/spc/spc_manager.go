@@ -1,36 +1,70 @@
-package stackpointio
+package spc
 
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/StackPointCloud/stackpoint-sdk-go"
+
+	"github.com/golang/glog"
 )
 
 // ClusterClient is a StackPointCloud API client for a particular cluster
 type ClusterClient struct {
 	organization int
 	id           int
-	apiClient    *APIClient
+	apiClient    *stackpointio.APIClient
 }
 
-// CreateClusterClient creates a cluster client
-func CreateClusterClient(organizationID, clusterID int, client *APIClient) *ClusterClient {
-	clusterClient := &ClusterClient{
-		organization: organizationID,
-		id:           clusterID,
-		apiClient:    client,
+// CreateClusterClient creates a ClusterClient from environment
+// variables {CLUSTER_API_TOKEN, SPC_BASE_API_URL, ORGANIZATION_ID, CLUSTER_ID}
+func CreateClusterClient() (*ClusterClient, error) {
+
+	token := os.Getenv("CLUSTER_API_TOKEN")
+	if token == "" {
+		return nil, fmt.Errorf("Environment variable CLUSTER_API_TOKEN not defined")
 	}
-	return clusterClient
+	endpoint := os.Getenv("SPC_API_BASE_URL")
+	if endpoint == "" {
+		return nil, fmt.Errorf("Environment variable SPC_API_BASE_URL not defined")
+	}
+	apiClient := stackpointio.NewClient(token, endpoint)
+	glog.V(5).Infof("Using stackpoint io api server [%s]", endpoint)
+
+	organizationID := os.Getenv("ORGANIZATION_ID")
+	clusterID := os.Getenv("CLUSTER_ID")
+	glog.V(5).Infof("Using stackpoint organization [%s], cluster [%s]", organizationID, clusterID)
+
+	orgPk, err := strconv.Atoi(organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("Bad environment variable for organizationID [%s]", organizationID)
+	}
+	clusterPk, err := strconv.Atoi(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("Bad environment variable for clusterID [%s]", clusterID)
+	}
+
+	clusterClient := &ClusterClient{
+		organization: orgPk,
+		id:           clusterPk,
+		apiClient:    apiClient,
+	}
+	return clusterClient, nil
+}
+
+func (cClient *ClusterClient) getNodes() ([]stackpointio.Node, error) {
+	return cClient.apiClient.GetNodes(cClient.organization, cClient.id)
 }
 
 // NodeManager has a set of nodes and can add or delete them via the StackPointCloud API
 type NodeManager struct {
 	NodeType      string
 	clusterClient *ClusterClient
-	nodes         map[string]Node
+	nodes         map[string]stackpointio.Node
 }
 
 // CreateNodeManager creates a NodeManager
@@ -38,7 +72,7 @@ func CreateNodeManager(nodeType string, cluster *ClusterClient) *NodeManager {
 	manager := &NodeManager{
 		NodeType:      nodeType,
 		clusterClient: cluster,
-		nodes:         make(map[string]Node),
+		nodes:         make(map[string]stackpointio.Node),
 	}
 	return manager
 }
@@ -62,34 +96,31 @@ func (manager *NodeManager) countStates() *map[string]int {
 	return &counts
 }
 
-func (manager *NodeManager) addNode(node Node) int {
+func (manager *NodeManager) addNode(node stackpointio.Node) int {
 	manager.nodes[node.InstanceID] = node
 	return len(manager.nodes)
 }
 
 // GetNode returns a Node identified by the stackpointio instanceID
-func (manager *NodeManager) GetNode(instanceID string) (Node, bool) {
+func (manager *NodeManager) GetNode(instanceID string) (stackpointio.Node, bool) {
 	node, ok := manager.nodes[instanceID]
 	return node, ok
 }
 
-// GetNode returns a Node identified by the stackpointio primaryKey
-func (manager *NodeManager) GetNodePK(nodePK int) (Node, bool) {
+// GetNodePK returns a Node identified by the stackpointio primaryKey
+func (manager *NodeManager) GetNodePK(nodePK int) (stackpointio.Node, bool) {
 	for _, node := range manager.nodes {
 		if node.PrimaryKey == nodePK {
 			return node, true
 		}
 	}
-	return Node{}, false
+	return stackpointio.Node{}, false
 }
 
 // Update refreshes the state of the current nodes in the clusterClient
 func (manager *NodeManager) Update() error {
-	log.WithFields(log.Fields{
-		"organizationID": manager.clusterClient.organization,
-		"clusterID":      manager.clusterClient.id,
-	}).Info("Updating cluster info")
-	clusterNodes, err := manager.clusterClient.apiClient.GetNodes(manager.clusterClient.organization, manager.clusterClient.id)
+	glog.V(5).Infof("Updating cluster info, organizationID %d, clusterID %d", manager.clusterClient.organization, manager.clusterClient.id)
+	clusterNodes, err := manager.clusterClient.getNodes()
 	if err != nil {
 		return err
 	}
@@ -97,22 +128,15 @@ func (manager *NodeManager) Update() error {
 		localNode, ok := manager.nodes[clusterNode.InstanceID]
 		if ok {
 			if localNode.State != clusterNode.State {
-				log.WithFields(log.Fields{
-					"nodeID":   clusterNode.InstanceID,
-					"oldState": localNode.State,
-					"newState": clusterNode.State,
-				}).Info("Node state change")
+				glog.V(5).Infof("Node state change, nodeID %s, oldState %s, newState %s", clusterNode.InstanceID, localNode.State, clusterNode.State)
 			}
 		} else {
-			log.WithFields(log.Fields{
-				"nodeID":   clusterNode.InstanceID,
-				"newState": clusterNode.State,
-			}).Info("New node found")
+			glog.V(5).Infof("New node found, nodeID %s, newState %s", clusterNode.InstanceID, clusterNode.State)
 		}
 		manager.nodes[clusterNode.InstanceID] = clusterNode
 	}
 	if len(clusterNodes) < len(manager.nodes) {
-		log.Info("Remote node count is too small")
+		glog.V(2).Info("Remote node count is too small, remote %d vs. local %d", len(clusterNodes), len(manager.nodes))
 		reconciliationSet := make(map[string]int)
 		for index, clusterNode := range clusterNodes {
 			reconciliationSet[clusterNode.InstanceID] = index
@@ -120,9 +144,7 @@ func (manager *NodeManager) Update() error {
 		for instanceID := range manager.nodes {
 			_, ok := reconciliationSet[instanceID]
 			if !ok {
-				log.WithFields(log.Fields{
-					"nodeID": instanceID,
-				}).Info("Local node does not exist in cluster, removing")
+				glog.V(2).Info("Local node does not exist in cluster, removing nodeID %s", instanceID)
 				delete(manager.nodes, instanceID)
 			}
 		}
@@ -137,7 +159,7 @@ func (manager *NodeManager) IncreaseSize(additional int) (int, error) {
 	manager.Update()
 	states := manager.countStates()
 
-	newNodes := NodeAdd{
+	newNodes := stackpointio.NodeAdd{
 		Size:  manager.NodeType,
 		Count: additional,
 	}
@@ -148,7 +170,7 @@ func (manager *NodeManager) IncreaseSize(additional int) (int, error) {
 		return 0, err
 	}
 	resultBytes, _ := json.Marshal(result)
-	log.Info("AddNodes request response: " + string(resultBytes)) // does _not_ include a reference to the new node
+	glog.V(5).Infof("AddNodes request response: %s ", string(resultBytes)) // does _not_ include a reference to the new node
 	timeout := 20 * time.Minute
 	expiration := time.NewTimer(timeout).C
 
@@ -166,15 +188,15 @@ updateLoop:
 			break updateLoop
 		case <-tick:
 			manager.Update()
-			states := manager.countStates()
-			if (*states)["running"] >= target {
+			stateCount := manager.countStates()
+			if (*stateCount)["running"] >= target {
 				break updateLoop
 			}
-			if (*states)["draft"]+(*states)["building"]+(*states)["provisioned"]+(*states)["running"] < target {
+			if (*stateCount)["draft"]+(*stateCount)["building"]+(*stateCount)["provisioned"]+(*stateCount)["running"] < target {
 				errorResult = fmt.Errorf("Not enough nodes in running or pending states to satisfy request for %d", target)
 				break updateLoop
 			}
-			log.Info("Current running count: ", (*states)["running"])
+			glog.V(5).Infof("Current running count: %d", (*stateCount)["running"])
 		}
 	}
 	return (*states)["running"], errorResult
@@ -207,20 +229,14 @@ func (manager *NodeManager) DeleteNodes(instanceIDs []string) (int, error) {
 		return 0, err
 	}
 
-	log.WithFields(log.Fields{
-		"nodeDeleteCount": len(nodeKeys),
-	}).Info("Deleting nodes")
-
 	var pollNodeKeys []int
 	for _, nodePK := range nodeKeys {
-		someResponse, err := manager.clusterClient.apiClient.DeleteNode(manager.clusterClient.organization, manager.clusterClient.id, nodePK)
-		if err != nil {
-			errorMessage = append(errorMessage, err.Error())
+		someResponse, someErr := manager.clusterClient.apiClient.DeleteNode(manager.clusterClient.organization, manager.clusterClient.id, nodePK)
+		if someErr != nil {
+			errorMessage = append(errorMessage, someErr.Error())
 		} else {
 			pollNodeKeys = append(pollNodeKeys, nodePK)
-			log.WithFields(log.Fields{
-				"nodeInstanceID": string(someResponse),
-			}).Info("Deleting node")
+			glog.V(2).Infof("Deleting node nodeInstanceID %s", string(someResponse))
 		}
 	}
 
@@ -248,7 +264,7 @@ updateLoop:
 			for _, nodePK := range pollNodeKeys {
 				node, ok := manager.GetNodePK(nodePK)
 				if !ok {
-					log.Error("XXX programming error")
+					glog.Errorf("Unexpected value of stackpoint node id in polling list [%d]", nodePK)
 				}
 				if node.State != "deleted" {
 					break // out of inner loop, wait some more
@@ -262,7 +278,7 @@ updateLoop:
 	for _, nodePK := range pollNodeKeys {
 		node, ok := manager.GetNodePK(nodePK)
 		if !ok {
-			log.Error("XXX programming error")
+			glog.Errorf("Unexpected value of stackpoint node id in polling list [%d]", nodePK)
 		}
 		if node.State == "deleted" {
 			activeDeletionCount++
