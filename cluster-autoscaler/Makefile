@@ -19,7 +19,7 @@ BIN := cluster-autoscaler
 PKG := k8s.io/contrib/cluster-autoscaler
 
 # Where to push the docker image.
-REGISTRY ?= quay.io/ntfrnzn
+REGISTRY ?= quay.io/stackpoint
 
 # Which architecture to build - see $(ALL_ARCH) for options.
 ARCH ?= amd64
