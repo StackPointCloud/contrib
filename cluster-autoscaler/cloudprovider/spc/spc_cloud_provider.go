@@ -31,8 +31,6 @@ type SpcNodeGroup struct {
 	id      string
 	maxSize int
 	minSize int
-	// currentSize int
-	// targetSize  int
 	manager *NodeManager
 }
 
@@ -56,14 +54,23 @@ func (sng *SpcNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely)
 func (sng *SpcNodeGroup) TargetSize() (int, error) {
-	return sng.manager.Size(), nil
+
+	sng.manager.Update()
+	count := 0
+
+	for _, node := range sng.manager.nodes {
+		if node.Group == sng.Id() && node.State == "running" {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // IncreaseSize increases the size of the node group. To delete a node you need
 // to explicitly name it and use DeleteNode. This function should wait until
 // node group size is updated.
 func (sng *SpcNodeGroup) IncreaseSize(delta int) error {
-	_, err := sng.manager.IncreaseSize(delta)
+	_, err := sng.manager.IncreaseSize(delta, sng.Id())
 	return err
 }
 
@@ -73,7 +80,7 @@ func (sng *SpcNodeGroup) IncreaseSize(delta int) error {
 func (sng *SpcNodeGroup) DeleteNodes(nodes []*kube_api.Node) error {
 	ids := make([]string, 0, len(nodes))
 	for _, node := range nodes {
-		instanceID, err := instanceIdForNode(node)
+		instanceID, err := instanceIDForNode(node)
 		if err != nil {
 			glog.V(2).Info(err.Error())
 		} else {
@@ -84,20 +91,28 @@ func (sng *SpcNodeGroup) DeleteNodes(nodes []*kube_api.Node) error {
 	return err
 }
 
-func instanceIdForNode(node *kube_api.Node) (string, error) {
+func labelValueForNode(key string, node *kube_api.Node) (string, error) {
 	labels := node.ObjectMeta.Labels
-	instanceID, ok := labels["stackpoint.io/instance_id"]
+	value, ok := labels[key]
 	if !ok {
 		var errorResp error
 		hostname, reallyOK := labels["kubernetes.io/hostname"]
 		if reallyOK {
-			errorResp = fmt.Errorf("Unable to find stackpointio instance_id label for node [%s]", hostname)
+			errorResp = fmt.Errorf("Unable to find label [%s] for node [%s]", key, hostname)
 		} else {
-			errorResp = fmt.Errorf("Unable to find stackpointio instance_id label for a nodes without 'kubernetes.io/hostname' label")
+			errorResp = fmt.Errorf("Unable to find label [%s] for a nodes without 'kubernetes.io/hostname' label", key)
 		}
 		return "", errorResp
 	}
-	return instanceID, nil
+	return value, nil
+}
+
+func instanceIDForNode(node *kube_api.Node) (string, error) {
+	return labelValueForNode("stackpoint.io/instance_id", node)
+}
+
+func nodeGroupNameForNode(node *kube_api.Node) (string, error) {
+	return labelValueForNode("stackpoint.io/node_group", node)
 }
 
 // Id returns an unique identifier of the node group.
@@ -127,9 +142,7 @@ func BuildSpcCloudProvider(spcClient *ClusterClient, specs []string) (*SpcCloudP
 		return nil, fmt.Errorf("ClusterClient is nil")
 	}
 	if len(specs) == 0 {
-		glog.V(5).Info("No node groups specified, faking one now")
-		//return nil, fmt.Errorf("No node groups specified, must specify one")
-		specs = []string{"2:4:t2.large"}
+		return nil, fmt.Errorf("No node group is specified")
 	} else if len(specs) > 1 {
 		return nil, fmt.Errorf("Multiple node groups not supported at this time")
 	}
@@ -137,7 +150,7 @@ func BuildSpcCloudProvider(spcClient *ClusterClient, specs []string) (*SpcCloudP
 		spcClient:  spcClient,
 		nodeGroups: make([]*SpcNodeGroup, 0),
 	}
-	if err := spc.addNodeGroup(specs[0]); err != nil {
+	if err := spc.addNodeGroup(specs[0], "autoscaling"); err != nil {
 		return nil, err
 	}
 	return spc, nil
@@ -145,7 +158,7 @@ func BuildSpcCloudProvider(spcClient *ClusterClient, specs []string) (*SpcCloudP
 
 // addNodeGroup adds node group defined in string spec. Format:
 // minNodes:maxNodes:typeofNode
-func (spc *SpcCloudProvider) addNodeGroup(spec string) error {
+func (spc *SpcCloudProvider) addNodeGroup(spec, name string) error {
 	glog.V(5).Infof("Node group specification: %s", spec)
 	minSize, maxSize, nodeType, err := tokenizeNodeGroupSpec(spec)
 	if err != nil {
@@ -160,7 +173,7 @@ func (spc *SpcCloudProvider) addNodeGroup(spec string) error {
 		return err
 	}
 	newNodeGroup := &SpcNodeGroup{
-		id:      "default",
+		id:      name,
 		minSize: minSize,
 		maxSize: maxSize,
 		manager: manager,
@@ -177,8 +190,8 @@ func tokenizeNodeGroupSpec(spec string) (minSize, maxSize int, nodeSizeProviderS
 	}
 
 	if size, err := strconv.Atoi(tokens[0]); err == nil {
-		if size <= 0 {
-			return minSize, maxSize, nodeSizeProviderString, fmt.Errorf("min size must be >= 1")
+		if size < 0 {
+			return minSize, maxSize, nodeSizeProviderString, fmt.Errorf("min size must be >= 0")
 		}
 		minSize = size
 	} else {
@@ -217,18 +230,23 @@ func (spc *SpcCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred.
 func (spc *SpcCloudProvider) NodeGroupForNode(node *kube_api.Node) (cloudprovider.NodeGroup, error) {
-	instanceID, error := instanceIdForNode(node)
+
+	nodeGroupName, error := nodeGroupNameForNode(node)
 	if error != nil {
-		glog.V(2).Infof("Error node not manageable %s, can't get instance_id", node.Spec.ExternalID)
+		glog.V(2).Infof("Error node not manageable %s, can't get nodeGroupName", node.Spec.ExternalID)
 		return nil, nil
 	}
-	glog.V(5).Infof("Looking up node group for %s", instanceID)
-	spc.nodeGroups[0].manager.Update()
-	spcNode, ok := spc.nodeGroups[0].manager.GetNode(instanceID)
-	if !ok {
-		glog.V(2).Infof("Could not find node group for %s", instanceID)
-		return nil, fmt.Errorf("Could not find node group for %s", instanceID)
+	if nodeGroupName == "" {
+		glog.V(5).Infof("Node not manageable %s, nodeGroupName is empty", node.Spec.ExternalID)
+		return nil, nil
 	}
-	glog.V(5).Infof("Found spc node (%d:%s) for instance_id %s", spcNode.PrimaryKey, spcNode.Name, instanceID)
-	return spc.nodeGroups[0], nil
+	for _, nodeGroup := range spc.nodeGroups {
+		if nodeGroup.Id() == nodeGroupName {
+			glog.V(5).Infof("Matched nodeGroupName %s", nodeGroupName)
+			return nodeGroup, nil
+		}
+	}
+	glog.V(2).Infof("Failed to matched nodeGroupName %s", nodeGroupName)
+
+	return nil, nil
 }

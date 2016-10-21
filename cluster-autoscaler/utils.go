@@ -176,6 +176,17 @@ func GetNodeInfosForGroups(nodes []*kube_api.Node, cloudProvider cloudprovider.C
 			result[id] = nodeInfo
 		}
 	}
+
+	for _, nodeGroup := range cloudProvider.NodeGroups() {
+		if _, found := result[nodeGroup.Id()]; !found {
+			glog.V(5).Infof("NodeGroup %s was omitted from initial count", nodeGroup.Id())
+			if nodeGroup.MinSize() == 0 {
+				glog.V(5).Infof("Patching in information for zero-size node group %s", nodeGroup.Id())
+				nodeInfo := schedulercache.NewNodeInfo()
+				result[nodeGroup.Id()] = nodeInfo
+			}
+		}
+	}
 	return result, nil
 }
 

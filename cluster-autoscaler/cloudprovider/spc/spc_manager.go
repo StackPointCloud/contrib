@@ -1,7 +1,6 @@
 package spc
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -155,22 +154,28 @@ func (manager *NodeManager) Update() error {
 
 // IncreaseSize adds nodes to the manager and to the cluster, waits until
 // the addition is complete.  Returns the count of running nodes.
-func (manager *NodeManager) IncreaseSize(additional int) (int, error) {
+func (manager *NodeManager) IncreaseSize(additional int, groupName string) (int, error) {
 	manager.Update()
 	states := manager.countStates()
 
-	newNodes := stackpointio.NodeAdd{
+	requestNodes := stackpointio.NodeAdd{
 		Size:  manager.NodeType,
 		Count: additional,
+		Group: groupName,
 	}
-	target := (*states)["running"] + additional
 
-	result, err := manager.clusterClient.apiClient.AddNodes(manager.clusterClient.organization, manager.clusterClient.id, newNodes)
+	newNodes, err := manager.clusterClient.apiClient.AddNodes(manager.clusterClient.organization, manager.clusterClient.id, requestNodes)
 	if err != nil {
 		return 0, err
 	}
-	resultBytes, _ := json.Marshal(result)
-	glog.V(5).Infof("AddNodes request response: %s ", string(resultBytes)) // does _not_ include a reference to the new node
+	for _, node := range newNodes {
+		glog.V(5).Infof("AddNodes response {instance_id: %s, state: %s}", node.InstanceID, node.State)
+		if node.Group != requestNodes.Group {
+			glog.Errorf("AddNodes instance_id: %s is in group [%s] not group [%s]", node.InstanceID, node.Group, groupName)
+		}
+	}
+	//if newNode.Group !=
+
 	timeout := 20 * time.Minute
 	expiration := time.NewTimer(timeout).C
 
@@ -188,15 +193,21 @@ updateLoop:
 			break updateLoop
 		case <-tick:
 			manager.Update()
-			stateCount := manager.countStates()
-			if (*stateCount)["running"] >= target {
+			completed := true
+			for _, requestNode := range newNodes {
+				currentNode, found := manager.GetNode(requestNode.InstanceID)
+				if !found {
+					glog.Errorf("AddNodes instance_id [%s] not found in current lookup", currentNode.InstanceID)
+					break
+				}
+				glog.V(5).Infof("Checking node {instance_id: %s, state: %s}", currentNode.InstanceID, currentNode.State)
+				if currentNode.State != "running" {
+					completed = false
+				}
+			}
+			if completed {
 				break updateLoop
 			}
-			if (*stateCount)["draft"]+(*stateCount)["building"]+(*stateCount)["provisioned"]+(*stateCount)["running"] < target {
-				errorResult = fmt.Errorf("Not enough nodes in running or pending states to satisfy request for %d", target)
-				break updateLoop
-			}
-			glog.V(5).Infof("Current running count: %d", (*stateCount)["running"])
 		}
 	}
 	return (*states)["running"], errorResult

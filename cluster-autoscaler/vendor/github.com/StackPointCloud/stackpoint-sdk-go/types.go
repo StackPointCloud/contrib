@@ -89,6 +89,7 @@ type Node struct {
 	ClusterID  int       `json:"cluster"`
 	InstanceID string    `json:"instance_id"`
 	Role       string    `json:"role"`
+	Group      string    `json:"group_name,omitempty"`
 	PrivateIP  string    `json:"private_ip"`
 	PublicIP   string    `json:"public_ip"`
 	Platform   string    `json:"platform"`
@@ -104,6 +105,7 @@ type Node struct {
 type NodeAdd struct {
 	Size  string `json:"size"`
 	Count int    `json:"node_count"`
+	Group string `json:"group,omitempty"`
 }
 
 // PersistentVolume is the representation of a Kubernetes PersistentVolume in

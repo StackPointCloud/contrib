@@ -18,7 +18,7 @@
 		},
 		{
 			"ImportPath": "github.com/StackPointCloud/stackpoint-sdk-go",
-			"Rev": "1ca977938bdb39ffde5bac9d6d0a645272294035"
+			"Rev": "60bc34cfeab94d48d100e8c626bc6102e0dbccbf"
 		},
 		{
 			"ImportPath": "github.com/aws/aws-sdk-go/aws",
