@@ -109,13 +109,15 @@ func ScaleUp(unschedulablePods []*kube_api.Pod, nodes []*kube_api.Node, cloudPro
 			return false, fmt.Errorf("no sample node for: %s", bestOption.nodeGroup.Id())
 		}
 
-		estimate := 1
+		var estimate int
+		var report string
 		node := nodeInfo.Node()
 		if node == nil {
+			estimate = 1
 			// can happen if the autoscaling group is currently empty, no nodes will be found
-			glog.Errorf("got dummy nodeInfo, continuing with default estimate=1")
+			glog.V(1).Infof("got dummy nodeInfo, continuing with default estimate=1")
 		} else {
-			estimate, report := bestOption.estimator.Estimate(node)
+			estimate, report = bestOption.estimator.Estimate(node)
 			glog.V(1).Info(bestOption.estimator.GetDebug())
 			glog.V(1).Info(report)
 			glog.V(1).Infof("Estimated %d nodes needed in %s", estimate, bestOption.nodeGroup.Id())

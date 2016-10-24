@@ -25,10 +25,10 @@ REGISTRY ?= quay.io/stackpoint
 ARCH ?= amd64
 
 # This version-strategy uses git tags to set the version string
-VERSION := $(shell git describe --always --dirty)-$(ARCH)
+# VERSION := $(shell git describe --always --dirty)-$(ARCH)
 #
 # This version-strategy uses a manual value to set the version string
-#VERSION := 1.2.3
+VERSION := 0.3.0
 
 ###
 ### These variables should not need tweaking.
