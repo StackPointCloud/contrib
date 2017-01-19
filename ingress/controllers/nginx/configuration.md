@@ -21,7 +21,7 @@
 there are 3 ways to customize nginx
 
 1. config map: create a stand alone config map, use this if you want a different global configuration
-2. annoations: [annotate the ingress](#annotations), use this if you want a specific configuration for the site defined in the ingress rule
+2. annotations: [annotate the ingress](#annotations), use this if you want a specific configuration for the site defined in the ingress rule
 3. custom template: when is required a specific setting like [open_file_cache](http://nginx.org/en/docs/http/ngx_http_core_module.html#open_file_cache), custom [log_format](http://nginx.org/en/docs/http/ngx_http_log_module.html#log_format), adjust [listen](http://nginx.org/en/docs/http/ngx_http_core_module.html#listen) options as `rcvbuf` or when is not possible to change an through the config map
 
 
@@ -37,17 +37,18 @@ The following annotations are supported:
 
 |Name                 |type|
 |---------------------------|------|
-|[ingress.kubernetes.io/rewrite-target](#rewrite)|URI|
 |[ingress.kubernetes.io/add-base-url](#rewrite)|true or false|
+|[ingress.kubernetes.io/auth-realm](#authentication)|string|
+|[ingress.kubernetes.io/auth-secret](#authentication)|string|
+|[ingress.kubernetes.io/auth-type](#authentication)|basic or digest|
+|[ingress.kubernetes.io/auth-url](#external-authentication)|string|
 |[ingress.kubernetes.io/limit-connections](#rate-limiting)|number|
 |[ingress.kubernetes.io/limit-rps](#rate-limiting)|number|
-|[ingress.kubernetes.io/auth-type](#authentication)|basic or digest|
-|[ingress.kubernetes.io/auth-secret](#authentication)|string|
-|[ingress.kubernetes.io/auth-realm](#authentication)|string|
+|[ingress.kubernetes.io/rewrite-target](#rewrite)|URI|
+|[ingress.kubernetes.io/secure-backends](#secure-backends)|true or false|
 |[ingress.kubernetes.io/ssl-redirect](#server-side-https-enforcement-through-redirect)|true or false|
 |[ingress.kubernetes.io/upstream-max-fails](#custom-nginx-upstream-checks)|number|
 |[ingress.kubernetes.io/upstream-fail-timeout](#custom-nginx-upstream-checks)|number|
-|[ingress.kubernetes.io/secure-backends](#secure-backends)|true or false|
 |[ingress.kubernetes.io/whitelist-source-range](#whitelist-source-range)|CIDR|
 
 
@@ -117,6 +118,18 @@ ingress.kubernetes.io/auth-realm:"realm string"
 ```
 
 Please check the [auth](examples/auth/README.md) example
+
+
+### External Authentication
+
+To use an existing service that provides authentication the Ingress rule can be annotated with `ingress.kubernetes.io/auth-url` to indicate the URL where the HTTP request should be sent.
+Additionally is possible to set `ingress.kubernetes.io/auth-method` to specify the HTTP method to use (GET or POST) and `ingress.kubernetes.io/auth-send-body` to true or false (default).
+
+```
+ingress.kubernetes.io/auth-url:"URL to the authentication service"
+```
+
+Please check the [external-auth](examples/external-auth/README.md) example
 
 
 ### Rewrite

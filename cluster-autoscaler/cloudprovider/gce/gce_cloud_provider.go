@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider"
-	kube_api "k8s.io/kubernetes/pkg/api"
+	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 )
 
 // GceCloudProvider implements CloudProvider interface.
@@ -72,7 +72,7 @@ func (gce *GceCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 }
 
 // NodeGroupForNode returns the node group for the given node.
-func (gce *GceCloudProvider) NodeGroupForNode(node *kube_api.Node) (cloudprovider.NodeGroup, error) {
+func (gce *GceCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
 	ref, err := GceRefFromProviderId(node.Spec.ProviderID)
 	if err != nil {
 		return nil, err
@@ -146,8 +146,30 @@ func (mig *Mig) IncreaseSize(delta int) error {
 	return mig.gceManager.SetMigSize(mig, size+int64(delta))
 }
 
+// DecreaseTargetSize decreases the target size of the node group. This function
+// doesn't permit to delete any existing node and can be used only to reduce the
+// request for new nodes that have not been yet fulfilled. Delta should be negative.
+func (mig *Mig) DecreaseTargetSize(delta int) error {
+	if delta >= 0 {
+		return fmt.Errorf("size decrease must be netative")
+	}
+	size, err := mig.gceManager.GetMigSize(mig)
+	if err != nil {
+		return err
+	}
+	nodes, err := mig.gceManager.GetMigNodes(mig)
+	if err != nil {
+		return err
+	}
+	if int(size)+delta < len(nodes) {
+		return fmt.Errorf("attempt to delete existing nodes targetSize:%d delta:%d existingNodes: %d",
+			size, delta, len(nodes))
+	}
+	return mig.gceManager.SetMigSize(mig, size+int64(delta))
+}
+
 // Belongs returns true if the given node belongs to the NodeGroup.
-func (mig *Mig) Belongs(node *kube_api.Node) (bool, error) {
+func (mig *Mig) Belongs(node *apiv1.Node) (bool, error) {
 	ref, err := GceRefFromProviderId(node.Spec.ProviderID)
 	if err != nil {
 		return false, err
@@ -166,7 +188,7 @@ func (mig *Mig) Belongs(node *kube_api.Node) (bool, error) {
 }
 
 // DeleteNodes deletes the nodes from the group.
-func (mig *Mig) DeleteNodes(nodes []*kube_api.Node) error {
+func (mig *Mig) DeleteNodes(nodes []*apiv1.Node) error {
 	size, err := mig.gceManager.GetMigSize(mig)
 	if err != nil {
 		return err
@@ -201,6 +223,11 @@ func (mig *Mig) Id() string {
 // Debug returns a debug string for the Mig.
 func (mig *Mig) Debug() string {
 	return fmt.Sprintf("%s (%d:%d)", mig.Id(), mig.MinSize(), mig.MaxSize())
+}
+
+// Nodes returns a list of all nodes that belong to this node group.
+func (mig *Mig) Nodes() ([]string, error) {
+	return mig.gceManager.GetMigNodes(mig)
 }
 
 func buildMig(value string, gceManager *GceManager) (*Mig, error) {
