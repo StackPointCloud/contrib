@@ -19,7 +19,6 @@ package mungers
 import (
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/google/go-github/github"
 	"github.com/spf13/cobra"
 	"k8s.io/contrib/mungegithub/features"
@@ -40,8 +39,8 @@ var (
 	// Only include priorities that you care about. Others won't be pinged
 	timePeriods = map[string]time.Duration{
 		"priority/P0": 2 * 24 * time.Hour,
-		"priority/P1": 4 * 24 * time.Hour,
-		"priority/P2": 2 * 30 * 24 * time.Hour,
+		"priority/P1": 8 * 24 * time.Hour,
+		"priority/P2": time.Duration(1<<63 - 1),
 		"priority/P3": time.Duration(1<<63 - 1),
 	}
 )
@@ -95,9 +94,8 @@ func (NagFlakeIssues) Munge(obj *mgh.MungeObject) {
 		return
 	}
 
-	comments, err := obj.ListComments()
-	if err != nil {
-		glog.Error(err)
+	comments, ok := obj.ListComments()
+	if !ok {
 		return
 	}
 

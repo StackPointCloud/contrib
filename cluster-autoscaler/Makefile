@@ -21,8 +21,15 @@ PKG := k8s.io/contrib/cluster-autoscaler
 # Where to push the docker image.
 REGISTRY ?= quay.io/stackpoint
 
+<<<<<<< HEAD
 # Which architecture to build - see $(ALL_ARCH) for options.
 ARCH ?= amd64
+=======
+TAG?=dev
+FLAGS=
+ENVVAR=
+GOOS?=linux
+>>>>>>> master
 
 # This version-strategy uses git tags to set the version string
 # VERSION := $(shell git describe --always --dirty)-$(ARCH)
@@ -30,9 +37,15 @@ ARCH ?= amd64
 # This version-strategy uses a manual value to set the version string
 VERSION := 0.3.0
 
+<<<<<<< HEAD
 ###
 ### These variables should not need tweaking.
 ###
+=======
+build: clean deps
+	$(ENVVAR) GOOS=$(GOOS) godep go build ./...
+	$(ENVVAR) GOOS=$(GOOS) godep go build -o cluster-autoscaler
+>>>>>>> master
 
 SRC_DIRS := cmd pkg # directories which hold app source (not vendored)
 
@@ -51,6 +64,11 @@ endif
 ifeq ($(ARCH),ppc64le)
     BASEIMAGE?=ppc64le/busybox
 endif
+<<<<<<< HEAD
+=======
+	docker build --pull -t ${REGISTRY}/cluster-autoscaler:${TAG} .
+	gcloud docker push ${REGISTRY}/cluster-autoscaler:${TAG}
+>>>>>>> master
 
 IMAGE := $(REGISTRY)/stackpointio-$(BIN)
 # -$(ARCH)
