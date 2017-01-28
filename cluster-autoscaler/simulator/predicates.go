@@ -19,16 +19,11 @@ package simulator
 import (
 	"fmt"
 
-<<<<<<< HEAD
 	"github.com/golang/glog"
 
-	kube_api "k8s.io/kubernetes/pkg/api"
-	kube_client "k8s.io/kubernetes/pkg/client/unversioned"
-=======
 	kube_util "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
-	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/release_1_5"
->>>>>>> master
+	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/factory"
@@ -95,7 +90,6 @@ func (p *PredicateChecker) FitsAny(pod *apiv1.Pod, nodeInfos map[string]*schedul
 }
 
 // CheckPredicates checks if the given pod can be placed on the given node.
-<<<<<<< HEAD
 func (p *PredicateChecker) CheckPredicates(pod *kube_api.Pod, nodeInfo *schedulercache.NodeInfo) error {
 
 	if nodeInfo.Node() == nil {
@@ -103,9 +97,6 @@ func (p *PredicateChecker) CheckPredicates(pod *kube_api.Pod, nodeInfo *schedule
 		return nil
 	}
 
-=======
-func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, nodeInfo *schedulercache.NodeInfo) error {
->>>>>>> master
 	for _, predicate := range p.predicates {
 		match, failureReason, err := predicate(pod, nil, nodeInfo)
 
