@@ -204,6 +204,31 @@ func GetNodeInfosForGroups(nodes []*apiv1.Node, cloudProvider cloudprovider.Clou
 	return result, nil
 }
 
+// GetNodeInfosForGroups finds NodeInfos for all node groups used to manage the given nodes. It also returns a node group to sample node mapping.
+// TODO(mwielgus): This returns map keyed by url, while most code (including scheduler) uses node.Name for a key.
+func GetNodeInfosForGroups_master_branch(nodes []*apiv1.Node, cloudProvider cloudprovider.CloudProvider, kubeClient kube_client.Interface) (map[string]*schedulercache.NodeInfo, error) {
+	result := make(map[string]*schedulercache.NodeInfo)
+	for _, node := range nodes {
+
+		nodeGroup, err := cloudProvider.NodeGroupForNode(node)
+		if err != nil {
+			return map[string]*schedulercache.NodeInfo{}, err
+		}
+		if nodeGroup == nil || reflect.ValueOf(nodeGroup).IsNil() {
+			continue
+		}
+		id := nodeGroup.Id()
+		if _, found := result[id]; !found {
+			nodeInfo, err := simulator.BuildNodeInfoForNode(node, kubeClient)
+			if err != nil {
+				return map[string]*schedulercache.NodeInfo{}, err
+			}
+			result[id] = nodeInfo
+		}
+	}
+	return result, nil
+}
+
 // Removes unregisterd nodes if needed. Returns true if anything was removed and error if such occurred.
 func removeOldUnregisteredNodes(unregisteredNodes []clusterstate.UnregisteredNode, context *AutoscalingContext,
 	currentTime time.Time) (bool, error) {
@@ -212,10 +237,17 @@ func removeOldUnregisteredNodes(unregisteredNodes []clusterstate.UnregisteredNod
 		if unregisteredNode.UnregisteredSince.Add(context.UnregisteredNodeRemovalTime).Before(currentTime) {
 			glog.V(0).Infof("Removing unregistered node %v", unregisteredNode.Node.Name)
 			nodeGroup, err := context.CloudProvider.NodeGroupForNode(unregisteredNode.Node)
+
+			if nodeGroup == nil || reflect.ValueOf(nodeGroup).IsNil() {
+				glog.V(0).Infof("Node group not found for %s", unregisteredNode.Node.Name)
+				continue
+			}
 			if err != nil {
 				glog.Warningf("Failed to get node group for %s: %v", unregisteredNode.Node.Name, err)
-				return removedAny, err
+				continue
+				//return removedAny, err
 			}
+
 			err = nodeGroup.DeleteNodes([]*apiv1.Node{unregisteredNode.Node})
 			if err != nil {
 				glog.Warningf("Failed to remove node %s: %v", unregisteredNode.Node.Name, err)
@@ -232,6 +264,9 @@ func removeOldUnregisteredNodes(unregisteredNodes []clusterstate.UnregisteredNod
 // to fix something.
 func fixNodeGroupSize(context *AutoscalingContext, currentTime time.Time) (bool, error) {
 	fixed := false
+	if context.CloudProvider == nil {
+		return false, fmt.Errorf("context.CloudProvider is nil")
+	}
 	for _, nodeGroup := range context.CloudProvider.NodeGroups() {
 		incorrectSize := context.ClusterStateRegistry.GetIncorrectNodeGroupSize(nodeGroup.Id())
 		if incorrectSize == nil {

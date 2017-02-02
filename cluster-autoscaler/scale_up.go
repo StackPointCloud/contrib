@@ -102,7 +102,10 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 			}
 		}
 		if len(option.Pods) > 0 {
-			if context.EstimatorName == BinpackingEstimatorName {
+			if nodeInfo.Node() == nil {
+				option.NodeCount = 1
+				option.Debug = fmt.Sprintf("Estimate for nodeGroup %s is one (1) due to empty node template", nodeGroup.Id())
+			} else if context.EstimatorName == BinpackingEstimatorName {
 				binpackingEstimator := estimator.NewBinpackingNodeEstimator(context.PredicateChecker)
 				option.NodeCount = binpackingEstimator.Estimate(option.Pods, nodeInfo, upcomingNodes)
 			} else if context.EstimatorName == BasicEstimatorName {
@@ -125,34 +128,7 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 		return false, nil
 	}
 
-<<<<<<< HEAD
-	// Pick some expansion option. sets bestoption and estimate
-	bestOption := BestExpansionOption(expansionOptions)
-	if bestOption != nil && bestOption.estimator.GetCount() > 0 {
-		glog.V(1).Infof("Best option to resize: %s", bestOption.nodeGroup.Id())
-		nodeInfo, found := nodeInfos[bestOption.nodeGroup.Id()]
-
-		if !found {
-			return false, fmt.Errorf("no sample node for: %s", bestOption.nodeGroup.Id())
-		}
-
-		var estimate int
-		var report string
-		node := nodeInfo.Node()
-		if node == nil {
-			estimate = 1
-			// can happen if the autoscaling group is currently empty, no nodes will be found
-			glog.V(1).Infof("got dummy nodeInfo, continuing with default estimate=1")
-		} else {
-			estimate, report = bestOption.estimator.Estimate(node)
-			if len(bestOption.Debug) > 0 {
-				glog.V(1).Info(bestOption.Debug)
-			}
-			glog.V(1).Info(report)
-			glog.V(1).Infof("Estimated %d nodes needed in %s", estimate, bestOption.nodeGroup.Id())
-		}
-=======
-	// Pick some expansion option. (set bestoption )
+	// Pick some expansion option. sets bestoption
 	bestOption := context.ExpanderStrategy.BestOption(expansionOptions, nodeInfos)
 	if bestOption != nil && bestOption.NodeCount > 0 {
 		glog.V(1).Infof("Best option to resize: %s", bestOption.NodeGroup.Id())
@@ -160,12 +136,12 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 			glog.V(1).Info(bestOption.Debug)
 		}
 		glog.V(1).Infof("Estimated %d nodes needed in %s", bestOption.NodeCount, bestOption.NodeGroup.Id())
->>>>>>> master
 
 		currentSize, err := bestOption.NodeGroup.TargetSize()
 		if err != nil {
 			return false, fmt.Errorf("failed to get node group size: %v", err)
 		}
+
 		newSize := currentSize + bestOption.NodeCount
 		if newSize >= bestOption.NodeGroup.MaxSize() {
 			glog.V(1).Infof("Capping size to MAX (%d)", bestOption.NodeGroup.MaxSize())

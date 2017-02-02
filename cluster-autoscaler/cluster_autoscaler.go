@@ -165,6 +165,7 @@ func run(_ <-chan struct{}) {
 	if *autoscalerProviderFlag == "" {
 		autoscalerProviderFlag = cloudProviderFlag
 	}
+	glog.V(5).Infof("Creating autoscaler with provider name <%s>", *autoscalerProviderFlag)
 
 	if *autoscalerProviderFlag == "gce" {
 		// GCE Manager
@@ -219,8 +220,11 @@ func run(_ <-chan struct{}) {
 		cloudProvider, err = spc.BuildSpcCloudProvider(spcClient, nodeGroupsFlag)
 		if err != nil {
 			glog.Fatalf("Failed to create stackpointio cloud provider: %v", err)
+		}
+		glog.V(5).Infof("Started stackpointio autoscaler: %s", cloudProvider.Name())
+	}
 
-	if *cloudProviderFlag == "azure" {
+	if *autoscalerProviderFlag == "azure" {
 
 		var azureManager *azure.AzureManager
 		var azureError error
@@ -243,6 +247,10 @@ func run(_ <-chan struct{}) {
 		if err != nil {
 			glog.Fatalf("Failed to create Azure cloud provider: %v", err)
 		}
+	}
+
+  if (cloudProvider == nil ){
+		glog.Fatalf("CloudProvider not created for autoscaling provider name <%s>", *autoscalerProviderFlag)
 	}
 
 	var expanderStrategy expander.Strategy
@@ -312,6 +320,15 @@ func run(_ <-chan struct{}) {
 				if len(allNodes) == 0 {
 					glog.Errorf("No nodes in the cluster")
 					continue
+				}
+
+        for _, group := range autoscalingContext.CloudProvider.NodeGroups() {
+            glog.V(5).Infof("Node group: %s", group.Id())
+						nodes, _ := group.Nodes()
+						for _, node := range nodes {
+							glog.V(5).Infof("      Node: %s", node)
+						}
+
 				}
 
 				currentTime := loopStart
@@ -479,15 +496,17 @@ func run(_ <-chan struct{}) {
 }
 
 func main() {
+
 	leaderElection := kube_leaderelection.DefaultLeaderElectionConfiguration()
 	leaderElection.LeaderElect = true
 
 	kube_leaderelection.BindFlags(&leaderElection, pflag.CommandLine)
+
 	flag.Var(&nodeGroupsFlag, "nodes", "sets min,max size and other configuration data for a node group in a format accepted by cloud provider."+
 		"Can be used multiple times. Format: <min>:<max>:<other...>")
 	kube_flag.InitFlags()
 
-	glog.Infof("Cluster Autoscaler %s", ClusterAutoscalerVersion)
+	glog.V(1).Infof("Cluster Autoscaler %s", ClusterAutoscalerVersion)
 
 	correctEstimator := false
 	for _, availableEstimator := range AvailableEstimators {
