@@ -159,7 +159,7 @@ func (manager *NodeManager) addNode(node stackpointio.Node) int {
 	return len(manager.nodes)
 }
 
-// Nodes returns the set of stackpointio node instanceIDs
+// Nodes returns the  complete set of stackpointio node instanceIDs
 func (manager *NodeManager) Nodes() ([]string, error) {
 	var keys []string
 	for k := range manager.nodes {
@@ -168,29 +168,20 @@ func (manager *NodeManager) Nodes() ([]string, error) {
 	return keys, nil
 }
 
-// NodesForGroupID returns a set of stackpointio node identifiers
-//  either a name, or an instanceId, or a private ip address ... ?
+// NodesForGroupID returns a set of stackpointio node instanceIDs for a given node group
 func (manager *NodeManager) NodesForGroupID(group string) ([]string, error) {
-	var nodeNames []string
+	var nodeIDs []string
 	glog.V(5).Infof("looking for nodes for %s", group)
 	if manager.nodes == nil {
 		return nil, fmt.Errorf("node list is nil")
 	}
 	for _, node := range manager.nodes {
 		glog.V(5).Infof("     checking node %s:%s:%s (%s)", node.Name, node.InstanceID, node.PrivateIP, node.Group)
-		rVal := node.Name
-		if rVal == "" {
-			rVal = node.PrivateIP
-		}
-		if rVal == "" {
-			rVal = node.InstanceID
-		}
-
 		if node.Group == group {
-			nodeNames = append(nodeNames, rVal)
+			nodeIDs = append(nodeIDs, node.InstanceID)
 		}
 	}
-	return nodeNames, nil
+	return nodeIDs, nil
 }
 
 // GetNode returns a Node identified by the stackpointio instanceID

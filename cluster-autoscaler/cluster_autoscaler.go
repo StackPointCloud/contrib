@@ -303,6 +303,9 @@ func run(_ <-chan struct{}) {
 				updateLastTime("main")
 
 				readyNodes, err := readyNodeLister.List()
+				for _, node := range readyNodes {
+					glog.V(5).Infof("Node %s is ready", node.Name)
+				}
 				if err != nil {
 					glog.Errorf("Failed to list ready nodes: %v", err)
 					continue

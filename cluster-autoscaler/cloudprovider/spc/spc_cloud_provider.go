@@ -22,6 +22,9 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
+	apimachinery "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 )
@@ -33,11 +36,12 @@ type SpcNodeClass struct {
 
 // SpcNodeGroup implements NodeGroup
 type SpcNodeGroup struct {
-	id      string
-	Class   SpcNodeClass
-	maxSize int
-	minSize int
-	manager *NodeManager
+	id        string
+	Class     SpcNodeClass
+	maxSize   int
+	minSize   int
+	k8sclient *kubernetes.Clientset
+	manager   *NodeManager
 }
 
 // MaxSize returns maximum size of the node group.
@@ -147,15 +151,40 @@ func (sng SpcNodeGroup) Debug() string {
 }
 
 // Nodes returns a list of all nodes that belong to this node group.
-// return value is a set of names/providerIDs
+// return value is a set of ... strings
+// for gce, this is "fmt.Sprintf("gce://%s/%s/%s", project, zone, name))"
+// for aws, this is Instance.InstanceId, something like "i-04a211e5f5c755e64"
+// for azure, this is "azure:////" + fixEndiannessUUID(string(strings.ToUpper(*instance.VirtualMachineScaleSetVMProperties.VMID)))""
 func (sng SpcNodeGroup) Nodes() ([]string, error) {
-	return sng.manager.NodesForGroupID(sng.Id())
+	//var instanceIDs []string
+	var names []string
+	instanceIDs, err := sng.manager.NodesForGroupID(sng.Id())
+	if err != nil {
+		return names, err
+	}
+	for _, instanceID := range instanceIDs {
+		labelSelection := "stackpoint.io/instance_id=" + instanceID
+		glog.V(5).Infof("Querying nodes for label %s", labelSelection)
+		options := apimachinery.ListOptions{LabelSelector: labelSelection}
+		nodeList, err := sng.k8sclient.CoreV1().Nodes().List(options)
+		if err != nil {
+			glog.Error(err)
+			break
+		}
+		glog.V(5).Infof("Retrieved %d nodes for node query", len(nodeList.Items))
+		if len(nodeList.Items) > 0 {
+			providerID := nodeList.Items[0].Spec.ProviderID
+			names = append(names, providerID)
+		}
+	}
+	return names, nil
 }
 
 // SpcCloudProvider implements CloudProvider
 type SpcCloudProvider struct {
 	spcClient  *StackpointClusterClient
 	spcManager *NodeManager
+	k8sclient  *kubernetes.Clientset
 	nodeGroups []*SpcNodeGroup
 }
 
@@ -168,9 +197,20 @@ func BuildSpcCloudProvider(spcClient *StackpointClusterClient, specs []string) (
 		return nil, fmt.Errorf("No node group is specified")
 	}
 	manager := CreateNodeManager(spcClient)
+
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("Cannot get the in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot create the in-cluster client")
+	}
+
 	spc := &SpcCloudProvider{
 		spcClient:  spcClient,
 		spcManager: &manager,
+		k8sclient:  clientset,
 		nodeGroups: make([]*SpcNodeGroup, 0),
 	}
 
@@ -198,11 +238,12 @@ func (spc *SpcCloudProvider) addNodeGroup(spec string) (string, error) {
 	name := "autoscaling-" + id
 	nodeClass := SpcNodeClass{nodeType}
 	newNodeGroup := &SpcNodeGroup{
-		id:      name,
-		minSize: minSize,
-		maxSize: maxSize,
-		Class:   nodeClass,
-		manager: spc.spcManager,
+		id:        name,
+		minSize:   minSize,
+		maxSize:   maxSize,
+		Class:     nodeClass,
+		k8sclient: spc.k8sclient,
+		manager:   spc.spcManager,
 	}
 	spc.nodeGroups = append(spc.nodeGroups, newNodeGroup)
 	return name, nil
