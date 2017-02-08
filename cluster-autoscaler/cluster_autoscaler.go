@@ -29,6 +29,7 @@ import (
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider/aws"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider/azure"
 	"k8s.io/contrib/cluster-autoscaler/cloudprovider/gce"
+	"k8s.io/contrib/cluster-autoscaler/cloudprovider/spc"
 	"k8s.io/contrib/cluster-autoscaler/clusterstate"
 	"k8s.io/contrib/cluster-autoscaler/config"
 	"k8s.io/contrib/cluster-autoscaler/expander"
@@ -99,7 +100,8 @@ var (
 		"How often scale down possiblity is check")
 	scanInterval                = flag.Duration("scan-interval", 10*time.Second, "How often cluster is reevaluated for scale up or down")
 	maxNodesTotal               = flag.Int("max-nodes-total", 0, "Maximum number of nodes in all node groups. Cluster autoscaler will not grow the cluster beyond this number.")
-	cloudProviderFlag           = flag.String("cloud-provider", "gce", "Cloud provider type. Allowed values: gce, aws, azure")
+	cloudProviderFlag           = flag.String("cloud-provider", "gce", "Cloud provider type. Allowed values: gce, aws, azure, stackpointio")
+	autoscalerProviderFlag      = flag.String("autoscaler-provider", "", "Autoscaler provider name, defaults to cloud-provider")
 	maxEmptyBulkDeleteFlag      = flag.Int("max-empty-bulk-delete", 10, "Maximum number of empty nodes that can be deleted at the same time.")
 	maxGratefulTerminationFlag  = flag.Int("max-grateful-termination-sec", 60, "Maximum number of seconds CA waints for pod termination when trying to scale down a node.")
 	maxTotalUnreadyPercentage   = flag.Float64("max-total-unready-percentage", 33, "Maximum percentage of unready nodes after which CA halts operations")
@@ -160,7 +162,12 @@ func run(_ <-chan struct{}) {
 
 	var cloudProvider cloudprovider.CloudProvider
 
-	if *cloudProviderFlag == "gce" {
+	if *autoscalerProviderFlag == "" {
+		autoscalerProviderFlag = cloudProviderFlag
+	}
+	glog.V(5).Infof("Creating autoscaler with provider name <%s>", *autoscalerProviderFlag)
+
+	if *autoscalerProviderFlag == "gce" {
 		// GCE Manager
 		var gceManager *gce.GceManager
 		var gceError error
@@ -183,7 +190,7 @@ func run(_ <-chan struct{}) {
 		}
 	}
 
-	if *cloudProviderFlag == "aws" {
+	if *autoscalerProviderFlag == "aws" {
 		var awsManager *aws.AwsManager
 		var awsError error
 		if *cloudConfig != "" {
@@ -205,7 +212,19 @@ func run(_ <-chan struct{}) {
 		}
 	}
 
-	if *cloudProviderFlag == "azure" {
+	if *autoscalerProviderFlag == "stackpointio" {
+		spcClient, spcError := spc.CreateClusterClient()
+		if spcError != nil {
+			glog.Fatalf("Failed to create SPC client: %v", spcError)
+		}
+		cloudProvider, err = spc.BuildSpcCloudProvider(spcClient, nodeGroupsFlag)
+		if err != nil {
+			glog.Fatalf("Failed to create stackpointio cloud provider: %v", err)
+		}
+		glog.V(5).Infof("Started stackpointio autoscaler: %s", cloudProvider.Name())
+	}
+
+	if *autoscalerProviderFlag == "azure" {
 
 		var azureManager *azure.AzureManager
 		var azureError error
@@ -228,6 +247,10 @@ func run(_ <-chan struct{}) {
 		if err != nil {
 			glog.Fatalf("Failed to create Azure cloud provider: %v", err)
 		}
+	}
+
+	if cloudProvider == nil {
+		glog.Fatalf("CloudProvider not created for autoscaling provider name <%s>", *autoscalerProviderFlag)
 	}
 
 	var expanderStrategy expander.Strategy
@@ -280,6 +303,9 @@ func run(_ <-chan struct{}) {
 				updateLastTime("main")
 
 				readyNodes, err := readyNodeLister.List()
+				for _, node := range readyNodes {
+					glog.V(5).Infof("Node %s is ready", node.Name)
+				}
 				if err != nil {
 					glog.Errorf("Failed to list ready nodes: %v", err)
 					continue
@@ -297,6 +323,15 @@ func run(_ <-chan struct{}) {
 				if len(allNodes) == 0 {
 					glog.Errorf("No nodes in the cluster")
 					continue
+				}
+
+				for _, group := range autoscalingContext.CloudProvider.NodeGroups() {
+					glog.V(5).Infof("Node group: %s", group.Id())
+					nodes, _ := group.Nodes()
+					for _, node := range nodes {
+						glog.V(5).Infof("      Node: %s", node)
+					}
+
 				}
 
 				currentTime := loopStart
@@ -464,15 +499,17 @@ func run(_ <-chan struct{}) {
 }
 
 func main() {
+
 	leaderElection := kube_leaderelection.DefaultLeaderElectionConfiguration()
 	leaderElection.LeaderElect = true
 
 	kube_leaderelection.BindFlags(&leaderElection, pflag.CommandLine)
+
 	flag.Var(&nodeGroupsFlag, "nodes", "sets min,max size and other configuration data for a node group in a format accepted by cloud provider."+
 		"Can be used multiple times. Format: <min>:<max>:<other...>")
 	kube_flag.InitFlags()
 
-	glog.Infof("Cluster Autoscaler %s", ClusterAutoscalerVersion)
+	glog.V(1).Infof("Cluster Autoscaler %s", ClusterAutoscalerVersion)
 
 	correctEstimator := false
 	for _, availableEstimator := range AvailableEstimators {

@@ -19,6 +19,8 @@ package simulator
 import (
 	"fmt"
 
+	"github.com/golang/glog"
+
 	kube_util "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
@@ -89,6 +91,12 @@ func (p *PredicateChecker) FitsAny(pod *apiv1.Pod, nodeInfos map[string]*schedul
 
 // CheckPredicates checks if the given pod can be placed on the given node.
 func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, nodeInfo *schedulercache.NodeInfo) error {
+
+	if nodeInfo.Node() == nil {
+		glog.V(2).Infof("CheckPredicates got a dummy NodeInfo with no node, returning nil")
+		return nil
+	}
+
 	for _, predicate := range p.predicates {
 		match, failureReason, err := predicate(pod, nil, nodeInfo)
 

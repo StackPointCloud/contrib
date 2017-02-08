@@ -108,7 +108,6 @@ func (readyNodeLister *ReadyNodeLister) List() ([]*apiv1.Node, error) {
 	for i, node := range nodes.Items {
 		if IsNodeReadyAndSchedulable(&node) {
 			readyNodes = append(readyNodes, &nodes.Items[i])
-			break
 		}
 	}
 	return readyNodes, nil

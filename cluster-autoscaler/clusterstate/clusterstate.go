@@ -17,6 +17,7 @@ limitations under the License.
 package clusterstate
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -182,6 +183,9 @@ func (csr *ClusterStateRegistry) UpdateNodes(nodes []*apiv1.Node, currentTime ti
 
 // getTargetSizes gets target sizes of node groups.
 func getTargetSizes(cp cloudprovider.CloudProvider) (map[string]int, error) {
+	if cp == nil {
+		return map[string]int{}, fmt.Errorf("cloudprovider.CloudProvider is nil oops")
+	}
 	result := make(map[string]int)
 	for _, ng := range cp.NodeGroups() {
 		size, err := ng.TargetSize()
@@ -326,7 +330,7 @@ func (csr *ClusterStateRegistry) updateReadinessStats(currentTime time.Time) {
 		ready, _, errReady := kube_util.GetReadinessState(node)
 
 		// Node is most likely not autoscaled, however check the errors.
-		if reflect.ValueOf(nodeGroup).IsNil() {
+		if nodeGroup == nil || reflect.ValueOf(nodeGroup).IsNil() {
 			if errNg != nil {
 				glog.Warningf("Failed to get nodegroup for %s: %v", node.Name, errNg)
 			}
@@ -338,6 +342,17 @@ func (csr *ClusterStateRegistry) updateReadinessStats(currentTime time.Time) {
 		}
 		total = update(total, node, ready)
 	}
+
+	// fill in empty groups
+	for _, nodeGroup := range csr.cloudProvider.NodeGroups() {
+		_, ok := perNodeGroup[nodeGroup.Id()]
+		if !ok {
+			if nodeGroup.MinSize() == 0 {
+				perNodeGroup[nodeGroup.Id()] = Readiness{}
+			}
+		}
+	}
+
 	csr.perNodeGroupReadiness = perNodeGroup
 	csr.totalReadiness = total
 }
@@ -446,7 +461,12 @@ func (csr *ClusterStateRegistry) GetUpcomingNodes() map[string]int {
 func getNotRegisteredNodes(allNodes []*apiv1.Node, cloudProvider cloudprovider.CloudProvider, time time.Time) ([]UnregisteredNode, error) {
 	registered := sets.NewString()
 	for _, node := range allNodes {
-		registered.Insert(node.Spec.ProviderID)
+		// if not ProviderID, use name
+		registerName := node.Spec.ProviderID
+		if registerName == "" {
+			registerName = node.Name
+		}
+		registered.Insert(registerName)
 	}
 	notRegistered := make([]UnregisteredNode, 0)
 	for _, nodeGroup := range cloudProvider.NodeGroups() {
@@ -455,7 +475,8 @@ func getNotRegisteredNodes(allNodes []*apiv1.Node, cloudProvider cloudprovider.C
 			return []UnregisteredNode{}, err
 		}
 		for _, node := range nodes {
-			if !registered.Has(node) {
+			if !registered.Has(node) { // testing equality of objects obtained from allNodes (kubeclient api) "ProviderID" and from CloudProvider.NodeGroups, different views
+				glog.V(5).Infof("Node <%s> from group %s is not registered", node, nodeGroup.Id())
 				notRegistered = append(notRegistered, UnregisteredNode{
 					Node: &apiv1.Node{
 						ObjectMeta: metav1.ObjectMeta{

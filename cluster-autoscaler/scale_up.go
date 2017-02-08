@@ -102,7 +102,10 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 			}
 		}
 		if len(option.Pods) > 0 {
-			if context.EstimatorName == BinpackingEstimatorName {
+			if nodeInfo.Node() == nil {
+				option.NodeCount = 1
+				option.Debug = fmt.Sprintf("Estimate for nodeGroup %s is one (1) due to empty node template", nodeGroup.Id())
+			} else if context.EstimatorName == BinpackingEstimatorName {
 				binpackingEstimator := estimator.NewBinpackingNodeEstimator(context.PredicateChecker)
 				option.NodeCount = binpackingEstimator.Estimate(option.Pods, nodeInfo, upcomingNodes)
 			} else if context.EstimatorName == BasicEstimatorName {
@@ -125,7 +128,7 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 		return false, nil
 	}
 
-	// Pick some expansion option.
+	// Pick some expansion option. sets bestoption
 	bestOption := context.ExpanderStrategy.BestOption(expansionOptions, nodeInfos)
 	if bestOption != nil && bestOption.NodeCount > 0 {
 		glog.V(1).Infof("Best option to resize: %s", bestOption.NodeGroup.Id())
@@ -138,6 +141,7 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 		if err != nil {
 			return false, fmt.Errorf("failed to get node group size: %v", err)
 		}
+
 		newSize := currentSize + bestOption.NodeCount
 		if newSize >= bestOption.NodeGroup.MaxSize() {
 			glog.V(1).Infof("Capping size to MAX (%d)", bestOption.NodeGroup.MaxSize())

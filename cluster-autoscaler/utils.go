@@ -172,6 +172,55 @@ func createNodeNameToInfoMap(pods []*apiv1.Pod, nodes []*apiv1.Node) map[string]
 // TODO(mwielgus): This returns map keyed by url, while most code (including scheduler) uses node.Name for a key.
 func GetNodeInfosForGroups(nodes []*apiv1.Node, cloudProvider cloudprovider.CloudProvider, kubeClient kube_client.Interface) (map[string]*schedulercache.NodeInfo, error) {
 	result := make(map[string]*schedulercache.NodeInfo)
+
+	glog.V(5).Infof("GetNodeInfosForGroups %d", len(nodes))
+	for _, node := range nodes {
+		glog.V(5).Infof("node %s:%s:%s", node.Name, node.Spec.ExternalID, node.Spec.ProviderID)
+		// azure: 172.23.1.17:172.23.1.17:azure:////02CBA716-79B6-E047-AF4A-82D2E77C6678
+	}
+
+	for _, node := range nodes {
+
+		nodeGroup, err := cloudProvider.NodeGroupForNode(node)
+		if err != nil {
+			return map[string]*schedulercache.NodeInfo{}, err
+		}
+		if nodeGroup == nil || reflect.ValueOf(nodeGroup).IsNil() {
+			glog.V(5).Infof("NodeGroup is nil for %s:%s:%s", node.Name, node.Spec.ExternalID, node.Spec.ProviderID)
+			continue
+		} else {
+			glog.V(5).Infof("NodeGroup %s found for %s:%s:%s", nodeGroup.Id(), node.Name, node.Spec.ExternalID, node.Spec.ProviderID)
+		}
+		id := nodeGroup.Id()
+		if _, found := result[id]; !found {
+			glog.V(5).Infof("No previously cached entry for nodeGroup %s", id)
+			nodeInfo, err := simulator.BuildNodeInfoForNode(node, kubeClient)
+			if err != nil {
+				return map[string]*schedulercache.NodeInfo{}, err
+			}
+			result[id] = nodeInfo
+			glog.V(5).Infof("nodeInfo for %s -> %s", id, nodeInfo.String())
+		}
+	}
+
+	for _, nodeGroup := range cloudProvider.NodeGroups() {
+		if _, found := result[nodeGroup.Id()]; !found {
+			glog.V(5).Infof("NodeGroup %s was omitted from initial count", nodeGroup.Id())
+			if nodeGroup.MinSize() == 0 {
+				glog.V(5).Infof("Patching in information for zero-size node group %s", nodeGroup.Id())
+				nodeInfo := schedulercache.NewNodeInfo()
+				result[nodeGroup.Id()] = nodeInfo
+				glog.V(5).Infof("nodeInfo for %s -> %s", nodeGroup.Id(), nodeInfo.String())
+			}
+		}
+	}
+	return result, nil
+}
+
+// GetNodeInfosForGroups finds NodeInfos for all node groups used to manage the given nodes. It also returns a node group to sample node mapping.
+// TODO(mwielgus): This returns map keyed by url, while most code (including scheduler) uses node.Name for a key.
+func GetNodeInfosForGroups_master_branch(nodes []*apiv1.Node, cloudProvider cloudprovider.CloudProvider, kubeClient kube_client.Interface) (map[string]*schedulercache.NodeInfo, error) {
+	result := make(map[string]*schedulercache.NodeInfo)
 	for _, node := range nodes {
 
 		nodeGroup, err := cloudProvider.NodeGroupForNode(node)
@@ -201,10 +250,17 @@ func removeOldUnregisteredNodes(unregisteredNodes []clusterstate.UnregisteredNod
 		if unregisteredNode.UnregisteredSince.Add(context.UnregisteredNodeRemovalTime).Before(currentTime) {
 			glog.V(0).Infof("Removing unregistered node %v", unregisteredNode.Node.Name)
 			nodeGroup, err := context.CloudProvider.NodeGroupForNode(unregisteredNode.Node)
+
+			if nodeGroup == nil || reflect.ValueOf(nodeGroup).IsNil() {
+				glog.V(0).Infof("Node group not found for %s", unregisteredNode.Node.Name)
+				continue
+			}
 			if err != nil {
 				glog.Warningf("Failed to get node group for %s: %v", unregisteredNode.Node.Name, err)
-				return removedAny, err
+				continue
+				//return removedAny, err
 			}
+
 			err = nodeGroup.DeleteNodes([]*apiv1.Node{unregisteredNode.Node})
 			if err != nil {
 				glog.Warningf("Failed to remove node %s: %v", unregisteredNode.Node.Name, err)
@@ -221,6 +277,9 @@ func removeOldUnregisteredNodes(unregisteredNodes []clusterstate.UnregisteredNod
 // to fix something.
 func fixNodeGroupSize(context *AutoscalingContext, currentTime time.Time) (bool, error) {
 	fixed := false
+	if context.CloudProvider == nil {
+		return false, fmt.Errorf("context.CloudProvider is nil")
+	}
 	for _, nodeGroup := range context.CloudProvider.NodeGroups() {
 		incorrectSize := context.ClusterStateRegistry.GetIncorrectNodeGroupSize(nodeGroup.Id())
 		if incorrectSize == nil {
