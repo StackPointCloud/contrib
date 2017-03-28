@@ -27,10 +27,10 @@ ARCH ?= amd64
 # This version-strategy uses git tags to set the version string
 # VERSION := $(shell git describe --always --dirty)-$(ARCH)
 
-VERSION := $(shell /bin/date +%s)
+# VERSION := $(shell /bin/date +%s)
 #
 # This version-strategy uses a manual value to set the version string
-# VERSION := 0.3.0
+VERSION := 0.4.0
 
 ###
 ### These variables should not need tweaking.

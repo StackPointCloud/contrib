@@ -36,5 +36,5 @@ export GOARCH="${ARCH}"
 
 go install                                                         \
     -installsuffix "static"                                        \
-    -ldflags "-X ${PKG}/main.ClusterAutoscalerVersion=${VERSION}"            \
+    -ldflags "-X main.ClusterAutoscalerVersion=${VERSION}" \
     ./...

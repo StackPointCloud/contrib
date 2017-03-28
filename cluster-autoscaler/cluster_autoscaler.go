@@ -326,8 +326,21 @@ func run(_ <-chan struct{}) {
 				}
 
 				for _, group := range autoscalingContext.CloudProvider.NodeGroups() {
+					nodes, _ := group.Nodes()
+					if len(nodes) < group.MinSize() {
+						glog.V(2).Infof("Node group: %s size %d is less than minimum %d, increasing now\n", group.Id(), len(nodes), group.MinSize())
+						err := group.IncreaseSize(group.MinSize() - len(nodes))
+						if err != nil {
+							glog.Errorf("Error increasing group %s,  %v", group.Id(), err)
+						}
+					}
+				}
+				for _, group := range autoscalingContext.CloudProvider.NodeGroups() {
 					glog.V(5).Infof("Node group: %s", group.Id())
 					nodes, _ := group.Nodes()
+					if len(nodes) > group.MaxSize() {
+						glog.V(5).Infof(" Size %d is greater than maximum %d\n", len(nodes), group.MinSize())
+					}
 					for _, node := range nodes {
 						glog.V(5).Infof("      Node: %s", node)
 					}

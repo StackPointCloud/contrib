@@ -121,15 +121,18 @@ func (cClient *StackpointClusterClient) deleteNode(nodePK int) ([]byte, error) {
 
 // NodeManager has a set of nodes and can add or delete them via the StackPointCloud API
 type NodeManager struct {
-	clusterClient *StackpointClusterClient
-	nodes         map[string]stackpointio.Node
+	clusterClient      *StackpointClusterClient
+	nodes              map[string]stackpointio.Node
+	apiRequestInterval time.Duration
+	lastApiRequestTime time.Time
 }
 
 // CreateNodeManager creates a NodeManager
 func CreateNodeManager(cluster *StackpointClusterClient) NodeManager {
 	manager := NodeManager{
-		clusterClient: cluster,
-		nodes:         make(map[string]stackpointio.Node, 0),
+		clusterClient:      cluster,
+		nodes:              make(map[string]stackpointio.Node, 0),
+		apiRequestInterval: 5 * time.Second,
 	}
 	manager.Update()
 	return manager
@@ -203,6 +206,12 @@ func (manager *NodeManager) GetNodePK(nodePK int) (stackpointio.Node, bool) {
 // Update refreshes the state of the current nodes in the clusterClient
 func (manager *NodeManager) Update() error {
 	glog.V(5).Infof("Updating cluster info, organizationID %d, clusterID %d", manager.clusterClient.getOrganization(), manager.clusterClient.getID())
+	timepoint := time.Now()
+	if timepoint.Sub(manager.lastApiRequestTime) < manager.apiRequestInterval {
+		return nil
+	}
+	manager.lastApiRequestTime = timepoint
+
 	clusterNodes, err := manager.clusterClient.getNodes()
 	if err != nil {
 		return err
