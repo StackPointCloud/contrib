@@ -30,7 +30,7 @@ ARCH ?= amd64
 # VERSION := $(shell /bin/date +%s)
 #
 # This version-strategy uses a manual value to set the version string
-VERSION := 0.4.0
+VERSION := 0.4.1
 
 ###
 ### These variables should not need tweaking.

@@ -68,7 +68,7 @@ func addToBeDeletedTaint(node *apiv1.Node) (bool, error) {
 	}
 	taints = append(taints, apiv1.Taint{
 		Key:    ToBeDeletedTaint,
-		Value:  time.Now().String(),
+		Value:  fmt.Sprintf("%d", time.Now().Unix()),
 		Effect: apiv1.TaintEffectNoSchedule,
 	})
 	taintsJson, err := json.Marshal(taints)
