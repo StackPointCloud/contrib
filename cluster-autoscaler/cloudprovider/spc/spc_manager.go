@@ -12,6 +12,12 @@ import (
 	"github.com/golang/glog"
 )
 
+const (
+	spcAPIRequestLimit     time.Duration = 60 * time.Second
+	scalingPollingInterval time.Duration = 60 * time.Second
+	scalingTimeout         time.Duration = 20 * time.Minute
+)
+
 // ClusterClient represents an api interface
 type ClusterClient interface {
 
@@ -124,7 +130,7 @@ type NodeManager struct {
 	clusterClient      *StackpointClusterClient
 	nodes              map[string]stackpointio.Node
 	apiRequestInterval time.Duration
-	lastApiRequestTime time.Time
+	lastAPIRequestTime time.Time
 }
 
 // CreateNodeManager creates a NodeManager
@@ -132,7 +138,7 @@ func CreateNodeManager(cluster *StackpointClusterClient) NodeManager {
 	manager := NodeManager{
 		clusterClient:      cluster,
 		nodes:              make(map[string]stackpointio.Node, 0),
-		apiRequestInterval: 5 * time.Second,
+		apiRequestInterval: spcAPIRequestLimit,
 	}
 	manager.Update()
 	return manager
@@ -207,10 +213,10 @@ func (manager *NodeManager) GetNodePK(nodePK int) (stackpointio.Node, bool) {
 func (manager *NodeManager) Update() error {
 	glog.V(5).Infof("Updating cluster info, organizationID %d, clusterID %d", manager.clusterClient.getOrganization(), manager.clusterClient.getID())
 	timepoint := time.Now()
-	if timepoint.Sub(manager.lastApiRequestTime) < manager.apiRequestInterval {
+	if timepoint.Sub(manager.lastAPIRequestTime) < manager.apiRequestInterval {
 		return nil
 	}
-	manager.lastApiRequestTime = timepoint
+	manager.lastAPIRequestTime = timepoint
 
 	clusterNodes, err := manager.clusterClient.getNodes()
 	if err != nil {
@@ -269,11 +275,8 @@ func (manager *NodeManager) IncreaseSize(additional int, nodeType string, groupN
 	}
 	//if newNode.Group !=
 
-	timeout := 20 * time.Minute
-	expiration := time.NewTimer(timeout).C
-
-	delay := 15 * time.Second
-	tick := time.NewTicker(delay).C
+	expiration := time.NewTimer(scalingTimeout).C
+	tick := time.NewTicker(scalingPollingInterval).C
 
 	var errorResult error
 
@@ -351,11 +354,8 @@ func (manager *NodeManager) DeleteNodes(instanceIDs []string) (int, error) {
 		return 0, err
 	}
 
-	timeout := 10 * time.Minute
-	expiration := time.NewTimer(timeout).C
-
-	delay := 15 * time.Second
-	tick := time.NewTicker(delay).C
+	expiration := time.NewTimer(scalingTimeout).C
+	tick := time.NewTicker(scalingPollingInterval).C
 
 updateLoop:
 	for {
