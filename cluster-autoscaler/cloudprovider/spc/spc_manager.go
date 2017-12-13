@@ -234,7 +234,7 @@ func (manager *NodeManager) Update() error {
 		manager.nodes[clusterNode.InstanceID] = clusterNode
 	}
 	if len(clusterNodes) < len(manager.nodes) {
-		glog.V(2).Info("Remote node count is too small, remote %d vs. local %d", len(clusterNodes), len(manager.nodes))
+		glog.V(2).Infof("Remote node count is too small, remote %d vs. local %d", len(clusterNodes), len(manager.nodes))
 		reconciliationSet := make(map[string]int)
 		for index, clusterNode := range clusterNodes {
 			reconciliationSet[clusterNode.InstanceID] = index

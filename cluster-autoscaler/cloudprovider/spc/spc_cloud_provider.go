@@ -317,11 +317,13 @@ func (spc *SpcCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.N
 	nodeGroupName, error := nodeGroupNameForNode(node)
 	if error != nil {
 		glog.V(2).Infof("Node not manageable %s, can't get nodeGroupName", node.Spec.ExternalID)
-		return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Node not manageable <%s>, can't get nodeGroupName", node.Name)
+		// return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Node not manageable <%s>, can't get nodeGroupName", node.Name)
+		return nil, fmt.Errorf("Node not manageable <%s>, can't get nodeGroupName", node.Name)
 	}
 	if nodeGroupName == "" {
 		glog.V(5).Infof("Node not manageable %s, nodeGroupName is empty", node.Spec.ExternalID)
-		return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Node not manageable <%s>, nodeGroupName is empty", node.Name)
+		// return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Node not manageable <%s>, nodeGroupName is empty", node.Name)
+		return nil, fmt.Errorf("Node not manageable <%s>, nodeGroupName is empty", node.Name)
 	}
 	for _, nodeGroup := range spc.nodeGroups {
 		if nodeGroup.Id() == nodeGroupName {
@@ -331,5 +333,6 @@ func (spc *SpcCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.N
 	}
 
 	glog.V(2).Infof("Failed to match nodeGroupName %s of node %s", nodeGroupName, node.Spec.ExternalID)
-	return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Failed to matched nodeGroupName %s", nodeGroupName)
+	//return nil, nil //&SpcNodeGroup{}, nil //fmt.Errorf("Failed to matched nodeGroupName %s", nodeGroupName)
+	return nil, fmt.Errorf("Failed to matched nodeGroupName %s", nodeGroupName)
 }

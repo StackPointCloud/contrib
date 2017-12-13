@@ -442,9 +442,12 @@ func (csr *ClusterStateRegistry) UpdateScaleDownCandidates(nodes []*apiv1.Node) 
 		group, err := csr.cloudProvider.NodeGroupForNode(node)
 		if err != nil {
 			glog.Warningf("Failed to get node group for %s: %v", node.Name, err)
-			continue
+			// continue  // whaaa
+		} else {
+			if group != nil {
+				result[group.Id()] = append(result[group.Id()], node.Name)
+			}
 		}
-		result[group.Id()] = append(result[group.Id()], node.Name)
 	}
 	csr.candidatesForScaleDown = result
 }
